@@ -1,0 +1,16 @@
+{
+  "name": "backend-denuncia-disfarcada",
+  "version": "1.0.0",
+  "description": "Servidor WebSocket e API REST para comunicação em tempo real entre o app da vítima e o painel policial",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "socket.io": "^4.8.1"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "denuncia-disfarcada",
+  "integrations": { "capacitor": {} },
+  "type": "react-vite"
+}
