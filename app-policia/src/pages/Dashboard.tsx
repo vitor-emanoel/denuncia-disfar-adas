@@ -3,29 +3,39 @@ import { IonContent, IonPage } from '@ionic/react';
 import { Browser } from '@capacitor/browser';
 import Button from '../components/Button';
 import Icon from '../components/Icon';
-import { Report, ReportStatus, formatNow } from '../data';
+import AnalyticsChart from '../components/AnalyticsChart';
+import HistoryModal from '../components/HistoryModal';
+import { Report, ReportStatus, UserSession, formatNow } from '../data';
 
-/**
- * Propriedades esperadas pelo painel policial.
- */
 interface Props {
   reports: Report[];
   connected: boolean;
+  currentUser: UserSession;
+  onLogout: () => void;
   onAddReport: (report: Report) => void;
-  onUpdateStatus: (id: number, status: ReportStatus) => void;
+  onUpdateStatus: (id: number, status: ReportStatus, notes?: string) => void;
 }
 
-/**
- * Painel Administrativo e Operacional da Polícia.
- * Exibe as denúncias enviadas pelas mulheres em tempo real com indicador de conexão
- * via WebSocket, localização precisa no mapa e alteração de status de despacho de viatura.
- */
-export default function Dashboard({ reports, connected, onAddReport, onUpdateStatus }: Props) {
+export default function Dashboard({
+  reports,
+  connected,
+  currentUser,
+  onLogout,
+  onAddReport,
+  onUpdateStatus
+}: Props) {
   const contentRef = useRef<HTMLIonContentElement>(null);
+  const [activeTab, setActiveTab] = useState<'reports' | 'analytics'>('reports');
   const [view, setView] = useState<'list' | 'create'>('list');
   const [success, setSuccess] = useState('');
+  const [filterStatus, setFilterStatus] = useState<string>('todos');
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [selectedReportForHistory, setSelectedReportForHistory] = useState<Report | null>(null);
 
   const pending = reports.filter((r) => r.status === 'Pendente').length;
+  const inProgress = reports.filter((r) => r.status === 'Em Atendimento').length;
+  const completed = reports.filter((r) => r.status === 'Concluído').length;
+
   const scrollTop = () => contentRef.current?.scrollToTop(300);
 
   const openCreate = () => {
@@ -33,6 +43,16 @@ export default function Dashboard({ reports, connected, onAddReport, onUpdateSta
     setView('create');
     scrollTop();
   };
+
+  const filteredReports = reports.filter((r) => {
+    const matchesStatus = filterStatus === 'todos' || r.status === filterStatus;
+    const matchesSearch =
+      searchTerm === '' ||
+      r.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.reason.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      String(r.id).includes(searchTerm);
+    return matchesStatus && matchesSearch;
+  });
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -44,6 +64,7 @@ export default function Dashboard({ reports, connected, onAddReport, onUpdateSta
     const neighborhood = String(data.get('neighborhood'));
     const reason = String(data.get('reason'));
     const code = String(data.get('code'));
+    const notes = String(data.get('notes') || '');
 
     const address = `${street}, ${number}${complement ? `, ${complement}` : ''} - ${neighborhood}, Recife - PE`;
 
@@ -54,6 +75,7 @@ export default function Dashboard({ reports, connected, onAddReport, onUpdateSta
       address,
       reason: `${reason} - ${code}`,
       mapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`,
+      notes,
     });
 
     setSuccess('Chamado aberto com sucesso e adicionado à fila operacional.');
@@ -77,6 +99,24 @@ export default function Dashboard({ reports, connected, onAddReport, onUpdateSta
               </div>
             </div>
             <div className="topbar-actions">
+              {/* Usuário Logado */}
+              <div className="user-badge">
+                <Icon name="user" />
+                <div className="user-info">
+                  <span className="user-name">{currentUser.name}</span>
+                  <span className="user-role">{currentUser.role}</span>
+                </div>
+                <button
+                  type="button"
+                  className="btn-logout"
+                  onClick={onLogout}
+                  title="Sair da sessão"
+                >
+                  <Icon name="exit" />
+                  Sair
+                </button>
+              </div>
+
               {/* Indicador de Status da Conexão em Tempo Real */}
               <div
                 style={{
@@ -111,8 +151,37 @@ export default function Dashboard({ reports, connected, onAddReport, onUpdateSta
             </div>
           </header>
 
-          {/* Alternância de Visualização */}
-          {view === 'list' ? (
+          {/* Abas Superiores de Navegação */}
+          <nav className="central-tabs-nav">
+            <div className="central-tabs-container">
+              <button
+                type="button"
+                className={`central-tab-btn ${activeTab === 'reports' ? 'active' : ''}`}
+                onClick={() => {
+                  setActiveTab('reports');
+                  setView('list');
+                }}
+              >
+                <Icon name="shield" />
+                Fila de Ocorrências ({reports.length})
+              </button>
+              <button
+                type="button"
+                className={`central-tab-btn ${activeTab === 'analytics' ? 'active' : ''}`}
+                onClick={() => setActiveTab('analytics')}
+              >
+                <Icon name="chart" />
+                Gráficos & Métricas
+              </button>
+            </div>
+          </nav>
+
+          {/* Visualização de Gráficos e Acompanhamento */}
+          {activeTab === 'analytics' ? (
+            <section className="content" aria-label="Painel de gráficos">
+              <AnalyticsChart reports={reports} />
+            </section>
+          ) : view === 'list' ? (
             <section className="content" aria-label="Lista de denúncias">
               {success && (
                 <div className="success-message" role="status">
@@ -129,84 +198,172 @@ export default function Dashboard({ reports, connected, onAddReport, onUpdateSta
                 </div>
               )}
 
+              {/* Cabeçalho da Listagem */}
               <div className="list-heading">
                 <div>
-                  <h2>Fila de ocorrências recebidas</h2>
-                  <p>Denúncias transmitidas pelas vítimas em tempo real via canal seguro.</p>
+                  <h2>Ocorrências Operacionais</h2>
+                  <p>Acompanhe chamados recebidos em tempo real e atualize o andamento das viaturas.</p>
                 </div>
                 <div className="heading-actions">
-                  <span className="report-total">{reports.length} ocorrências</span>
                   <Button variant="primary" onClick={openCreate}>
                     <Icon name="plus" />
-                    Novo chamado manual
+                    Abrir chamado manual
                   </Button>
                 </div>
               </div>
 
+              {/* Barra de Filtros e Busca */}
+              <div className="filters-bar">
+                <div className="search-box">
+                  <Icon name="search" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por rua, bairro, tipologia ou ID..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  {searchTerm && (
+                    <button className="clear-search" onClick={() => setSearchTerm('')}>
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                <div className="status-filter-pills">
+                  <button
+                    className={`filter-pill ${filterStatus === 'todos' ? 'active' : ''}`}
+                    onClick={() => setFilterStatus('todos')}
+                  >
+                    Todos ({reports.length})
+                  </button>
+                  <button
+                    className={`filter-pill filter-red ${filterStatus === 'Pendente' ? 'active' : ''}`}
+                    onClick={() => setFilterStatus('Pendente')}
+                  >
+                    Pendentes ({pending})
+                  </button>
+                  <button
+                    className={`filter-pill filter-yellow ${filterStatus === 'Em Atendimento' ? 'active' : ''}`}
+                    onClick={() => setFilterStatus('Em Atendimento')}
+                  >
+                    Em Atendimento ({inProgress})
+                  </button>
+                  <button
+                    className={`filter-pill filter-green ${filterStatus === 'Concluído' ? 'active' : ''}`}
+                    onClick={() => setFilterStatus('Concluído')}
+                  >
+                    Concluídos ({completed})
+                  </button>
+                </div>
+              </div>
+
+              {/* Lista de Chamados */}
               <div className="report-list">
-                {reports.map((report) => (
-                  <article className="report-card" key={report.id}>
-                    <div className="card-header">
-                      <time>{report.date}</time>
-                      <span className={`status status-${report.status.toLowerCase().replace(' ', '-')}`}>
-                        {report.status}
-                      </span>
-                    </div>
-
-                    <div className="address-row">
-                      <strong>{report.address}</strong>
-                      <Button variant="primary" onClick={() => Browser.open({ url: report.mapsUrl })}>
-                        Abrir no Google Maps
-                      </Button>
-                    </div>
-
-                    <div className="reason">
-                      <div>
-                        <span>Natureza do chamado:</span> {report.reason}
+                {filteredReports.length === 0 ? (
+                  <div className="empty-state">
+                    <Icon name="shield" />
+                    <p>Nenhuma ocorrência encontrada para este filtro ou busca.</p>
+                  </div>
+                ) : (
+                  filteredReports.map((report) => (
+                    <article className="report-card" key={report.id}>
+                      <div className="card-header">
+                        <time dateTime={report.date}>{report.date}</time>
+                        <div className="card-header-right">
+                          <span className={`status status-${report.status.toLowerCase().replace(/\s+/g, '-')}`}>
+                            {report.status}
+                          </span>
+                        </div>
                       </div>
-                      {report.hasSharedLocation && (
-                        <span className="shared-location-label">
-                          <Icon name="check" /> Localização exata por satélite
-                        </span>
-                      )}
-                    </div>
 
-                    <div className="actions">
-                      <Button
-                        disabled={report.status !== 'Pendente'}
-                        onClick={() => onUpdateStatus(report.id, 'Em Atendimento')}
-                      >
-                        {report.status === 'Pendente' ? 'Despachar viatura / Atender' : 'Em atendimento'}
-                      </Button>
-                      <Button
-                        variant="success"
-                        disabled={report.status === 'Concluído'}
-                        onClick={() => onUpdateStatus(report.id, 'Concluído')}
-                      >
-                        {report.status === 'Concluído' ? 'Ocorrência finalizada' : 'Concluir chamado'}
-                      </Button>
-                    </div>
-                  </article>
-                ))}
+                      <div className="address-row">
+                        <div>
+                          <span className="field-label">Endereço da ocorrência</span>
+                          <address className="address-value">
+                            {report.hasSharedLocation && (
+                              <span className="gps-pill" title="Geolocalização obtida por GPS">
+                                <Icon name="shield" /> GPS Exato
+                              </span>
+                            )}
+                            {report.address}
+                          </address>
+                        </div>
+                        <Button
+                          variant="secondary"
+                          onClick={() => Browser.open({ url: report.mapsUrl })}
+                        >
+                          <Icon name="mapPin" />
+                          Abrir no Google Maps
+                        </Button>
+                      </div>
+
+                      <div className="reason">
+                        <div>
+                          <span className="field-label">Tipificação informada</span>
+                          <p className="reason-value">{report.reason}</p>
+                        </div>
+
+                        {report.notes && (
+                          <div className="report-card-notes">
+                            <span className="field-label">Observações</span>
+                            <p>{report.notes}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="actions">
+                        <div className="actions-left">
+                          <button
+                            type="button"
+                            className="btn-history-view"
+                            onClick={() => setSelectedReportForHistory(report)}
+                          >
+                            <Icon name="history" />
+                            Ver Histórico ({report.statusHistory?.length || 1})
+                          </button>
+                        </div>
+
+                        <div className="actions-right">
+                          {report.status === 'Pendente' && (
+                            <Button
+                              variant="secondary"
+                              onClick={() => onUpdateStatus(report.id, 'Em Atendimento')}
+                            >
+                              Despachar viatura
+                            </Button>
+                          )}
+                          {report.status === 'Em Atendimento' && (
+                            <Button
+                              variant="primary"
+                              onClick={() => onUpdateStatus(report.id, 'Concluído')}
+                            >
+                              Concluir ocorrência
+                            </Button>
+                          )}
+                          {report.status === 'Concluído' && (
+                            <Button
+                              variant="secondary"
+                              onClick={() => onUpdateStatus(report.id, 'Em Atendimento')}
+                            >
+                              Reabrir atendimento
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </article>
+                  ))
+                )}
               </div>
             </section>
           ) : (
-            <section className="content create-content" aria-labelledby="create-title">
-              <button className="back-button" onClick={() => setView('list')}>
-                <Icon name="arrow" />
-                Voltar para a fila
-              </button>
-
-              <div className="create-heading">
+            /* Formulário de Abertura Manual */
+            <section className="content" aria-label="Abertura de chamado">
+              <header className="create-heading">
                 <div>
-                  <span className="eyebrow">Registro Operacional</span>
-                  <h2 id="create-title">Abertura manual de ocorrência</h2>
-                  <p>Cadastre uma denúncia recebida via rádio, 190 ou presencialmente.</p>
+                  <h2>Abertura de Ocorrência Manual</h2>
+                  <p>Cadastro oficial para denúncias recebidas via rádio, telefone 190 ou presencialmente.</p>
                 </div>
-                <span className="required-note">
-                  <b>*</b> Campos obrigatórios
-                </span>
-              </div>
+              </header>
 
               <form className="report-form" onSubmit={handleSubmit}>
                 <div className="form-main">
@@ -214,22 +371,22 @@ export default function Dashboard({ reports, connected, onAddReport, onUpdateSta
                     <div className="section-heading">
                       <span>1</span>
                       <div>
-                        <h3>Endereço do fato</h3>
-                        <p>Informe o logradouro e referências com a maior precisão possível.</p>
+                        <h3>Endereço do local</h3>
+                        <p>Informe o logradouro e complementos para a viatura.</p>
                       </div>
                     </div>
                     <div className="form-grid">
                       <label className="field field-wide">
                         <span>
-                          Logradouro <b>*</b>
+                          Logradouro (Rua, Av., etc.) <b>*</b>
                         </span>
-                        <input name="street" placeholder="Ex.: Rua da Aurora" required />
+                        <input name="street" placeholder="Ex: Av. Governador Agamenon Magalhães" required />
                       </label>
                       <label className="field">
                         <span>
                           Número <b>*</b>
                         </span>
-                        <input inputMode="numeric" name="number" placeholder="Ex.: 295" required />
+                        <input name="number" placeholder="Ex: 1200" required />
                       </label>
                       <label className="field">
                         <span>Complemento</span>
@@ -317,7 +474,7 @@ export default function Dashboard({ reports, connected, onAddReport, onUpdateSta
                     <h3>Despacho Oficial</h3>
                     <p>Ocorrências abertas são transmitidas instantaneamente para as viaturas do setor.</p>
                     <ul>
-                      <li>Dados consolidados</li>
+                      <li>Operador: {currentUser.name}</li>
                       <li>Geolocalização validada</li>
                       <li>Encaminhamento prioritário</li>
                     </ul>
@@ -331,6 +488,14 @@ export default function Dashboard({ reports, connected, onAddReport, onUpdateSta
                 </aside>
               </form>
             </section>
+          )}
+
+          {/* Modal de Histórico */}
+          {selectedReportForHistory && (
+            <HistoryModal
+              report={selectedReportForHistory}
+              onClose={() => setSelectedReportForHistory(null)}
+            />
           )}
         </main>
       </IonContent>

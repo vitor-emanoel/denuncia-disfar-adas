@@ -1,52 +1,45 @@
-import { FormEvent, useRef, useState } from 'react';
+import { FormEvent, useRef, useState, useEffect } from 'react';
 import { IonContent, IonPage } from '@ionic/react';
 import { Browser } from '@capacitor/browser';
 import { Geolocation } from '@capacitor/geolocation';
 import Button from '../components/Button';
 import Icon from '../components/Icon';
-import { LIGUE_180_WHATSAPP, Report, formatNow, sendReportToBackend } from '../data';
+import StatusTracker from './StatusTracker';
+import {
+  LIGUE_180_WHATSAPP,
+  Report,
+  formatNow,
+  sendReportToBackend,
+  saveReportLocally,
+  getSavedReports,
+} from '../data';
 
-/**
- * Propriedades esperadas pelo canal da mulher.
- */
 interface Props {
   onBackToCalculator: () => void;
 }
 
-/**
- * Estrutura das coordenadas geográficas.
- */
 interface Coords {
   latitude: number;
   longitude: number;
 }
 
-/**
- * Canal Seguro de Atendimento / Canal da Mulher.
- * Tela exibida imediatamente após a digitação da senha na calculadora.
- * Permite envio sigiloso da denúncia diretamente para o sistema policial,
- * captura de GPS exato e botões de pânico / saída rápida.
- */
 export default function PublicChannel({ onBackToCalculator }: Props) {
   const contentRef = useRef<HTMLIonContentElement>(null);
+  const [activeTab, setActiveTab] = useState<'form' | 'status'>('form');
   const [protocol, setProtocol] = useState('');
   const [coords, setCoords] = useState<Coords | null>(null);
   const [locationMessage, setLocationMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [savedCount, setSavedCount] = useState(0);
 
-  /**
-   * Abre o canal oficial do Ligue 180 no WhatsApp.
-   */
+  useEffect(() => {
+    setSavedCount(getSavedReports().length);
+  }, [protocol, activeTab]);
+
   const openWhatsApp = () => Browser.open({ url: LIGUE_180_WHATSAPP });
 
-  /**
-   * Saída rápida de emergência: substitui a tela imediatamente por um site neutro.
-   */
   const quickExit = () => window.location.replace('https://www.google.com');
 
-  /**
-   * Captura as coordenadas de GPS do dispositivo.
-   */
   const requestLocation = async () => {
     setLocationMessage('Obtendo sua localização...');
     try {
@@ -63,9 +56,6 @@ export default function PublicChannel({ onBackToCalculator }: Props) {
     }
   };
 
-  /**
-   * Processa e envia a denúncia para a central da polícia via backend.
-   */
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!coords) {
@@ -77,28 +67,36 @@ export default function PublicChannel({ onBackToCalculator }: Props) {
     const data = new FormData(e.currentTarget);
     const reason = String(data.get('public-reason'));
     const id = Date.now();
+    const date = formatNow();
 
     const report: Report = {
       id,
-      date: formatNow(),
+      date,
       status: 'Pendente',
       address: `Localização exata compartilhada: ${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}`,
       reason,
       mapsUrl: `https://www.google.com/maps/search/?api=1&query=${coords.latitude},${coords.longitude}`,
       hasSharedLocation: true,
+      statusHistory: [
+        {
+          status: 'Pendente',
+          timestamp: date,
+          by: 'App Mulher (Denúncia enviada)'
+        }
+      ]
     };
+
+    // Salva localmente no histórico da mulher
+    saveReportLocally(report);
 
     // Envio para o backend dos policiais
     await sendReportToBackend(report);
 
     setSending(false);
-    setProtocol(String(id).slice(-6));
+    setProtocol(String(id));
     contentRef.current?.scrollToTop(300);
   };
 
-  /**
-   * Reseta o formulário para um novo envio se necessário.
-   */
   const reset = () => {
     setProtocol('');
     setCoords(null);
@@ -130,51 +128,104 @@ export default function PublicChannel({ onBackToCalculator }: Props) {
             </div>
           </header>
 
-          {/* Tela de Confirmação vs Formulário */}
-          {protocol ? (
+          {/* Abas Superiores de Navegação no Canal da Mulher */}
+          <nav className="vitima-nav-tabs">
+            <button
+              type="button"
+              className={`vitima-tab-btn ${activeTab === 'form' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveTab('form');
+                reset();
+              }}
+            >
+              <Icon name="shield" />
+              Enviar Denúncia
+            </button>
+            <button
+              type="button"
+              className={`vitima-tab-btn ${activeTab === 'status' ? 'active' : ''}`}
+              onClick={() => setActiveTab('status')}
+            >
+              <Icon name="history" />
+              Acompanhar Status {savedCount > 0 && `(${savedCount})`}
+            </button>
+          </nav>
+
+          {/* Alternância: Acompanhamento de Status vs Formulário */}
+          {activeTab === 'status' ? (
+            <section className="public-content-container">
+              <StatusTracker onBackToForm={() => setActiveTab('form')} />
+            </section>
+          ) : protocol ? (
             <section className="public-confirmation" aria-live="polite">
               <span className="confirmation-mark">
                 <Icon name="check" />
               </span>
-              <span className="eyebrow">Denúncia enviada</span>
+              <span className="eyebrow">Denúncia enviada com sucesso</span>
               <h1>Recebemos seu pedido de ajuda.</h1>
-              <p>Sua denúncia e localização foram enviadas com prioridade para a equipe policial.</p>
-              
+              <p>Sua denúncia já foi transmitida para a Central Policial e viaturas estão sendo alertadas.</p>
+
               <div className="protocol">
-                <span>Número do protocolo</span>
+                <span>Número do Protocolo</span>
                 <strong>#{protocol}</strong>
               </div>
 
               <div className="confirmation-actions">
-                <Button variant="whatsapp" onClick={openWhatsApp}>
-                  <Icon name="message" />
-                  Falar com o Ligue 180 no WhatsApp
+                <Button
+                  variant="primary"
+                  onClick={() => setActiveTab('status')}
+                >
+                  <Icon name="history" />
+                  Acompanhar Status da Viatura em Tempo Real
                 </Button>
-                <Button onClick={reset}>Fazer outra denúncia</Button>
-                <Button onClick={onBackToCalculator}>Voltar à calculadora</Button>
+                <Button onClick={reset}>
+                  Fazer nova denúncia
+                </Button>
+                <Button onClick={onBackToCalculator}>
+                  Voltar à Calculadora
+                </Button>
               </div>
-              <small>Se houver perigo iminente, ligue imediatamente para o 190.</small>
+
+              <small>Guarde seu número de protocolo para consultas futuras no aplicativo.</small>
             </section>
           ) : (
             <>
-              {/* Destaque Inicial com Discagem 190 */}
+              {/* Banner Informativo / Hero */}
               <section className="public-hero">
                 <div>
-                  <span className="eyebrow">Canal seguro de atendimento</span>
-                  <h1>Você não está sozinha.</h1>
+                  <span className="hero-eyebrow">Canal Seguro de Atendimento</span>
+                  <h1>Você não está sozinha. Peça ajuda discretamente.</h1>
                   <p>
-                    Conte o que está acontecendo. Suas informações serão encaminhadas com total sigilo e rapidez para os
-                    serviços de atendimento e segurança.
+                    Seus dados e coordenadas GPS serão transmitidos de forma sigilosa para as forças
+                    de segurança.
                   </p>
                 </div>
-                <div className="emergency-card">
-                  <strong>Está em perigo agora?</strong>
-                  <p>Não espere pelo formulário. Ligue imediatamente para a Polícia Militar.</p>
-                  <a href="tel:190">Ligar para 190</a>
+                <div className="hero-steps">
+                  <div className="hero-step">
+                    <span>1</span>
+                    <div>
+                      <strong>Selecione o tipo de violência</strong>
+                      <p>Classifique o ocorrido para priorização do chamado.</p>
+                    </div>
+                  </div>
+                  <div className="hero-step">
+                    <span>2</span>
+                    <div>
+                      <strong>Compartilhe sua localização</strong>
+                      <p>O GPS garantirá o envio exato da viatura.</p>
+                    </div>
+                  </div>
+                  <div className="hero-step">
+                    <span>3</span>
+                    <div>
+                      <strong>Acompanhe o deslocamento</strong>
+                      <p>Veja o status em tempo real pelo seu protocolo.</p>
+                    </div>
+                  </div>
                 </div>
               </section>
 
-              {/* Seção Principal: Formulário e Painel de Ajuda */}
+              {/* Layout com Formulário e Suporte */}
               <section className="public-layout">
                 <form className="public-form" onSubmit={handleSubmit}>
                   <div className="public-form-heading">

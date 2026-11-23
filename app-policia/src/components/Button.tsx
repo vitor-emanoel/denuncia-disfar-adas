@@ -9,6 +9,7 @@ interface Props {
   disabled?: boolean;
   type?: 'button' | 'submit';
   onClick?: () => void;
+  className?: string;
 }
 
 /**
@@ -20,10 +21,11 @@ export default function Button({
   disabled = false,
   type = 'button',
   onClick,
+  className = '',
 }: Props) {
   return (
     <button
-      className={`button button-${variant}`}
+      className={`button button-${variant} ${className}`.trim()}
       disabled={disabled}
       onClick={onClick}
       type={type}

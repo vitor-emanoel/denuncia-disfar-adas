@@ -1,24 +1,48 @@
 import { useState, useEffect } from 'react';
 import { IonApp } from '@ionic/react';
 import Dashboard from './pages/Dashboard';
+import LoginCentral from './pages/LoginCentral';
 import {
   Report,
   ReportStatus,
+  UserSession,
   socket,
   fetchReports,
   createReport,
   updateReportStatus,
 } from './data';
 
-/**
- * Aplicação Central Policial.
- * Conecta via WebSocket ao backend e sincroniza denúncias em tempo real.
- */
+const SESSION_STORAGE_KEY = 'central_policial_user';
+
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<UserSession | null>(() => {
+    const saved = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
+
   const [reports, setReports] = useState<Report[]>([]);
   const [connected, setConnected] = useState<boolean>(socket.connected);
 
+  const handleLogin = (session: UserSession) => {
+    setCurrentUser(session);
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+  };
+
   useEffect(() => {
+    if (!currentUser) return;
+
     // 1. Carrega dados iniciais via REST
     fetchReports().then((data) => {
       if (data && data.length > 0) {
@@ -42,16 +66,31 @@ export default function App() {
     // 4. Recebimento de NOVA denúncia enviada pelo App da Vítima
     function onNewReport(report: Report) {
       setReports((prev) => {
-        // Evita duplicidade se já constar na lista
         if (prev.some((r) => r.id === report.id)) return prev;
         return [report, ...prev];
       });
     }
 
     // 5. Atualização de status da ocorrência (sincronizada entre viaturas)
-    function onUpdateStatus({ id, status }: { id: number; status: ReportStatus }) {
+    function onUpdateStatus({
+      id,
+      status,
+      statusHistory,
+    }: {
+      id: number;
+      status: ReportStatus;
+      statusHistory?: any[];
+    }) {
       setReports((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, status } : r))
+        prev.map((r) =>
+          r.id === id
+            ? {
+                ...r,
+                status,
+                ...(statusHistory ? { statusHistory } : {}),
+              }
+            : r
+        )
       );
     }
 
@@ -68,7 +107,7 @@ export default function App() {
       socket.off('new_report', onNewReport);
       socket.off('update_report_status', onUpdateStatus);
     };
-  }, []);
+  }, [currentUser]);
 
   /**
    * Adiciona um novo chamado via API do servidor (que emitirá o WebSocket).
@@ -81,21 +120,28 @@ export default function App() {
   /**
    * Atualiza a situação do atendimento e sincroniza no servidor.
    */
-  const handleUpdateStatus = async (id: number, status: ReportStatus) => {
+  const handleUpdateStatus = async (id: number, status: ReportStatus, notes?: string) => {
+    const operatorName = currentUser?.name || 'Central Policial';
     setReports((prev) =>
       prev.map((r) => (r.id === id ? { ...r, status } : r))
     );
-    await updateReportStatus(id, status);
+    await updateReportStatus(id, status, operatorName, notes);
   };
 
   return (
     <IonApp>
-      <Dashboard
-        reports={reports}
-        connected={connected}
-        onAddReport={handleAddReport}
-        onUpdateStatus={handleUpdateStatus}
-      />
+      {!currentUser ? (
+        <LoginCentral onLoginSuccess={handleLogin} />
+      ) : (
+        <Dashboard
+          reports={reports}
+          connected={connected}
+          currentUser={currentUser}
+          onLogout={handleLogout}
+          onAddReport={handleAddReport}
+          onUpdateStatus={handleUpdateStatus}
+        />
+      )}
     </IonApp>
   );
 }

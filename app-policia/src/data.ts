@@ -12,6 +12,15 @@ export const API_URL = `${SERVER_URL}/api/reports`;
 export type ReportStatus = 'Pendente' | 'Em Atendimento' | 'Concluído';
 
 /**
+ * Registro de histórico de evolução do chamado.
+ */
+export interface StatusHistoryEntry {
+  status: ReportStatus;
+  timestamp: string;
+  by: string;
+}
+
+/**
  * Estrutura de dados de uma ocorrência recebida.
  */
 export interface Report {
@@ -22,6 +31,19 @@ export interface Report {
   reason: string;
   mapsUrl: string;
   hasSharedLocation?: boolean;
+  notes?: string;
+  statusHistory?: StatusHistoryEntry[];
+}
+
+/**
+ * Dados da sessão autenticada.
+ */
+export interface UserSession {
+  id: string;
+  name: string;
+  role: string;
+  username: string;
+  token: string;
 }
 
 /**
@@ -65,7 +87,7 @@ export async function createReport(report: Report): Promise<boolean> {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(report),
+      body: JSON.stringify({ ...report, origin: 'Central Policial (Registro Manual)' }),
     });
     return res.ok;
   } catch (err) {
@@ -77,16 +99,39 @@ export async function createReport(report: Report): Promise<boolean> {
 /**
  * Atualiza o status de atendimento de uma ocorrência no servidor.
  */
-export async function updateReportStatus(id: number, status: ReportStatus): Promise<boolean> {
+export async function updateReportStatus(
+  id: number,
+  status: ReportStatus,
+  operatorName?: string,
+  notes?: string
+): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/${id}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, operatorName, notes }),
     });
     return res.ok;
   } catch (err) {
     console.error('Erro ao atualizar status:', err);
     return false;
+  }
+}
+
+/**
+ * Login na Central de Atendimento Policial.
+ */
+export async function loginCentral(username: string, password: string): Promise<UserSession | null> {
+  try {
+    const res = await fetch(`${SERVER_URL}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error('Erro na autenticação:', err);
+    return null;
   }
 }
