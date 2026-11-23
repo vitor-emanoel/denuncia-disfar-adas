@@ -12,6 +12,7 @@
     "cap:sync": "npm run build && npx cap sync"
   },
   "dependencies": {
+    "@capacitor/android": "^7.0.0",
     "@capacitor/browser": "^7.0.0",
     "@capacitor/core": "^7.0.0",
     "@capacitor/geolocation": "^7.0.0",

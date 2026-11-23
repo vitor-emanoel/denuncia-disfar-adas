@@ -41,18 +41,31 @@ export default function PublicChannel({ onBackToCalculator }: Props) {
   const quickExit = () => window.location.replace('https://www.google.com');
 
   const requestLocation = async () => {
-    setLocationMessage('Obtendo sua localização...');
+    setLocationMessage('Solicitando permissão e obtendo localização...');
     try {
+      // 1. Verifica e solicita permissão explicitamente no Android nativo
+      const checkStatus = await Geolocation.checkPermissions();
+      if (checkStatus.location !== 'granted') {
+        const req = await Geolocation.requestPermissions();
+        if (req.location !== 'granted') {
+          setCoords(null);
+          setLocationMessage('Permissão de GPS recusada. Permita nas configurações do aparelho.');
+          return;
+        }
+      }
+
+      // 2. Obtém a posição
       const pos = await Geolocation.getCurrentPosition({
         enableHighAccuracy: true,
-        timeout: 12000,
+        timeout: 15000,
         maximumAge: 0,
       });
       setCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
       setLocationMessage('Localização obtida e pronta para envio.');
-    } catch {
+    } catch (err) {
+      console.error('Erro de geolocalização:', err);
       setCoords(null);
-      setLocationMessage('Não foi possível acessar a localização. Verifique a permissão do aparelho.');
+      setLocationMessage('Não foi possível obter a localização. Verifique se o GPS do celular está ligado.');
     }
   };
 

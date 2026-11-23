@@ -3,7 +3,7 @@ import { io, Socket } from 'socket.io-client';
 /**
  * URL base do servidor de ocorrências da polícia.
  */
-export const SERVER_URL = 'http://localhost:3001';
+export const SERVER_URL = 'https://denuncia-disfar-adas.onrender.com';
 export const API_URL = `${SERVER_URL}/api/reports`;
 
 /**

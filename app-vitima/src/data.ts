@@ -4,7 +4,7 @@ import { io, Socket } from 'socket.io-client';
  * URL base da API do backend.
  * Pode ser ajustada para o IP da máquina na rede local caso testado em dispositivo físico.
  */
-export const SERVER_URL = 'http://localhost:3001';
+export const SERVER_URL = 'https://denuncia-disfar-adas.onrender.com';
 export const API_URL = `${SERVER_URL}/api/reports`;
 
 /**
